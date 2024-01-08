@@ -1,0 +1,4 @@
+findspark==2.0.1
+kafka_python==2.0.2
+pandas==2.1.4
+pyspark==3.5.0
