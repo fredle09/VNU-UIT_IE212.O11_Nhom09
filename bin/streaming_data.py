@@ -1,17 +1,23 @@
 import json
+from typing import List
 from kafka import KafkaProducer
 from config import *
 from time import sleep
 
-from pandas import read_csv
-from pandas import Series
-from pandas import DataFrame
+import csv
 
 
-def streaming_data(
-    df: DataFrame,
-    topic: str,
-) -> None:
+def streaming_data(path: str, topic: str) -> None:
+    """
+    Reads data from a CSV file and streams it to a Kafka topic.
+
+    Args:
+        path (str): The path to the CSV file.
+        topic (str): The Kafka topic to which the data will be streamed.
+
+    Returns:
+        None
+    """
     topic = topic or STORE_TOPIC
 
     producer: KafkaProducer = KafkaProducer(
@@ -19,20 +25,23 @@ def streaming_data(
         value_serializer=lambda x: json.dumps(x).encode("utf-8"),
     )
 
-    def send_to_kafka(row: Series) -> None:
-        record = ",".join([str(val) for val in row.values])
+    def send_to_kafka(row: List[str]) -> None:
+        record = ",".join([str(val) for val in row])
         # print(record)
+        # return
 
         producer.send(topic=topic, value=record)
         sleep(DELAY)
 
-    row: Series
-
     try:
-        for _, row in df.iterrows():
-            send_to_kafka(row)
+        with open(path, "r") as f:
+            reader = csv.reader(f)
+            _ = next(reader)  # skip header
+            for row in reader:
+                send_to_kafka(row)
+
     except KeyboardInterrupt:
-        print("Keyboard interrupt detected. Closing producer...")
+        print("Interrupted by user")
 
     producer.flush()
     producer.close()
@@ -57,6 +66,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    df: DataFrame = read_csv(args.data_path)
-
-    streaming_data(df, topic=args.topic)
+    streaming_data(path=args.data_path, topic=args.topic)
