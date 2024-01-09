@@ -14,7 +14,7 @@ from config import (
 def consumer_data(
     spark: SparkSession,
     topic: str = STORE_TOPIC,
-    lastest: bool = True,
+    latest: bool = True,
 ) -> DataFrame:
     """
     Reads data from a Kafka topic using SparkSession and returns a DataFrame.
@@ -22,7 +22,7 @@ def consumer_data(
     Args:
         spark (SparkSession): The SparkSession object.
         topic (str, optional): The Kafka topic to read from. Defaults to STORE_TOPIC.
-        lastest (bool, optional): Whether to start reading from the latest offset. Defaults to True.
+        latest (bool, optional): Whether to start reading from the latest offset. Defaults to True.
 
     Returns:
         DataFrame: The DataFrame containing the read data.
@@ -33,7 +33,7 @@ def consumer_data(
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BROKER)
         .option("subscribe", topic)
-        .option("startingOffsets", "lastest" if lastest else "earliest")
+        .option("startingOffsets", "latest" if latest else "earliest")
         .load()
     )
 
@@ -87,6 +87,8 @@ if __name__ == "__main__":
         .getOrCreate()
     )
 
+    spark.sparkContext.setLogLevel("ERROR")
+
     streaming_df: DataFrame = consumer_data(
         spark,
         topic=args.topic,
@@ -96,20 +98,17 @@ if __name__ == "__main__":
         streaming_df.writeStream.queryName("table_1")
         .trigger(processingTime="5 seconds")
         .outputMode("append")
-        .format("console")
+        .format("memory")
     )
 
     streaming_writer.start()
 
     from time import sleep
-    from IPython.display import display, clear_output
 
     try:
         while True:
-            # display(spark.sql("SELECT * FROM `table_1`").show())
-            spark.sql("SELECT * FROM `table_1`").show()
-            sleep(1)
-            # clear_output(wait=True)
+            spark.sql("SELECT * FROM `table_1`").show(truncate=False)
+            sleep(5)
 
     except KeyboardInterrupt:
         print("Interrupted by user")

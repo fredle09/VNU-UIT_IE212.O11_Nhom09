@@ -22,7 +22,7 @@ def streaming_data(path: str, topic: str) -> None:
 
     producer: KafkaProducer = KafkaProducer(
         bootstrap_servers=[KAFKA_BROKER],
-        value_serializer=lambda x: json.dumps(x).encode("utf-8"),
+        value_serializer=lambda x: str(x).encode("utf-8"),
     )
 
     def send_to_kafka(row: List[str]) -> None:
