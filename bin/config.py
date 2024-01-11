@@ -3,7 +3,7 @@ SPARK_VERSION = "3.5.0"
 KAFKA_VERSION = "3.6.1"
 
 
-DELAY = 0.01
+DELAY = 1 # seconds
 NUM_PARTITIONS = 3
 KAFKA_BROKER = "localhost:9092"
 STORE_TOPIC = "store_tutorial_15"
