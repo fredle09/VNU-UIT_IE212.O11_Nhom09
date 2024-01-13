@@ -1,15 +1,17 @@
 from typing import List, Union
-from kafka import KafkaProducer
-from config import *
-from time import sleep
+from time import sleep, time
 from datetime import datetime
+from kafka import KafkaProducer
 import csv
+from bin.config import *
 
 
 def streaming_data(
     path: str,
-    topic: str,
-    start_time: str = "",
+    topic: str = STORE_TOPIC,
+    start_time: Union[str, None] = None,
+    semaphore_prepare=None,
+    semaphore_running=None,
     debug: bool = False,
 ) -> None:
     """
@@ -19,13 +21,22 @@ def streaming_data(
     Args:
         path (str): The path to the CSV file.
         topic (str): The Kafka topic to which the data will be streamed.
-        start_time (str): The start time of the data stream.
-        debug (bool): Whether to print debug information.
+        start_time (str, optional): The start time of the data stream.
+        semaphore_prepare (Event, optional): A semaphore used for synchronization
+            before starting the data stream.
+        semaphore_running (Event, optional): A semaphore used for synchronization
+            to indicate that the data stream is running.
+        debug (bool, optional): Whether to print debug information.
 
     Returns:
         None
     """
     topic = topic or STORE_TOPIC
+    if start_time and (not semaphore_prepare or not semaphore_running):
+        raise ValueError(
+            "Invalid arguments\nif start_time is not None, then semaphore_prepare"
+            + "and semaphore_running must not be None"
+        )
 
     producer: KafkaProducer = KafkaProducer(
         bootstrap_servers=[KAFKA_BROKER],
@@ -51,12 +62,13 @@ def streaming_data(
         return res
 
     def send_to_kafka_with_delay(
-        previous_time: datetime,
+        previous_time: Union[datetime, None],
         current_time: datetime,
         row: List[str],
     ) -> None:
-        time_diff = get_time_diff(current_time, previous_time)
-        sleep(time_diff * DELAY)
+        if previous_time:
+            time_diff = get_time_diff(current_time, previous_time)
+            sleep(time_diff * DELAY)
         send_to_kafka(row)
 
     try:
@@ -69,31 +81,55 @@ def streaming_data(
                 datetime.strptime(start_time, "%Y-%m-%d") if start_time else None
             )
 
-            if not previous_time:
-                send_to_kafka(row)
-            else:
+            # Finding a row can stream after the start time
+            while previous_time and current_time < previous_time:
+                # Handle the case where the start time is after the last row
                 try:
-                    while current_time < previous_time:
-                        row = next(reader)
-                        current_time = convert_datetime(row)
-                    send_to_kafka_with_delay(
-                        previous_time=previous_time,
-                        current_time=current_time,
-                        row=row,
-                    )
+                    row = next(reader)
                 except StopIteration:
-                    raise ValueError(f"Reached end of file before {start_time}")
+                    if semaphore_prepare:
+                        semaphore_prepare.release()
+                    print(f"Reached end of file before {start_time}")
+                    return
+                # Update the current time of row
+                current_time = convert_datetime(row)
 
-            for row in reader:
+            # Ensure that all the processes stream at the same time if user pass
+            # the start time
+            if semaphore_prepare and semaphore_running:
+                semaphore_prepare.release()
+                semaphore_running.acquire()
+
+            # Ensure that the first data is streamed at the start time
+            if previous_time and current_time > previous_time:
+                time_diff: float = get_time_diff(current_time, previous_time)
+                sleep(time_diff * DELAY)
+
+            # Streaming data from the current row
+            while True:
+                # Set time point to calculate the time to sleep
+                time_point: float = time()
+                # Handle the case where the next data has the same time as the
+                # current data
+                while True:
+                    send_to_kafka(row)
+                    # Handle the case where the streaming all the data
+                    try:
+                        row = next(reader)
+                    except StopIteration:
+                        print("Reached end of file")
+                        return
+                    # Break if the next data has the different time
+                    if convert_datetime(row) > current_time:
+                        break
+                
+                # Update the previous time and current time
                 previous_time = current_time
                 current_time = convert_datetime(row)
-                send_to_kafka_with_delay(
-                    previous_time=previous_time,
-                    current_time=current_time,
-                    row=row,
-                )
-
-            print("Reached end of file")
+                diff_time: float = get_time_diff(current_time, previous_time)
+                time_process: float = time() - time_point
+                # Sleep to simulate the real-time data stream
+                sleep(diff_time * DELAY - time_process)
 
     except KeyboardInterrupt:
         print("Interrupted by user")
