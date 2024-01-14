@@ -2,13 +2,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as f
 
-from config import (
-    KAFKA_BROKER,
-    KAFKA_VERSION,
-    SCALE_VERSION,
-    SPARK_VERSION,
-    STORE_TOPIC,
-)
+from config import *
 
 
 def consumer_data(
@@ -39,23 +33,8 @@ def consumer_data(
 
     res = (
         res.selectExpr("CAST(value AS STRING)")
-        .select(f.split("value", ",").alias("csv_values"))
-        .selectExpr(
-            "CAST(csv_values[0] AS INT) as RequestID",
-            "CAST(csv_values[1] AS STRING) as Boro",
-            "CAST(csv_values[2] AS INT) as Yr",
-            "CAST(csv_values[3] AS INT) as M",
-            "CAST(csv_values[4] AS INT) as D",
-            "CAST(csv_values[5] AS INT) as HH",
-            "CAST(csv_values[6] AS INT) as MM",
-            "CAST(csv_values[7] AS INT) as Vol",
-            "CAST(csv_values[8] AS INT) as SegmentID",
-            "CAST(csv_values[9] AS STRING) as WktGeom",
-            "CAST(csv_values[10] AS STRING) as street",
-            "CAST(csv_values[11] AS STRING) as fromSt",
-            "CAST(csv_values[12] AS STRING) as toSt",
-            "CAST(csv_values[13] AS STRING) as Direction",
-        )
+        .select(f.from_json("value", ", ".join(JSON_SCHEMA_LIST)).alias("data"))
+        .selectExpr("data.*")
     )
 
     return res
@@ -87,27 +66,24 @@ if __name__ == "__main__":
         .getOrCreate()
     )
 
-    spark.sparkContext.setLogLevel("ERROR")
-
     streaming_df: DataFrame = consumer_data(
         spark,
         topic=args.topic,
     )
 
-    streaming_writer = (
+    streaming_query = (
         streaming_df.writeStream.queryName("table_1")
         .trigger(processingTime="5 seconds")
         .outputMode("append")
         .format("memory")
+        .start()
     )
-
-    streaming_writer.start()
 
     from time import sleep
 
     try:
         while True:
-            spark.sql("SELECT * FROM `table_1`").show(truncate=False)
+            spark.sql("SELECT * FROM table_1").show()
             sleep(5)
 
     except KeyboardInterrupt:

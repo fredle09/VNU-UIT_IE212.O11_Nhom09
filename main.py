@@ -1,11 +1,10 @@
-from typing import List
 import os
+from typing import List
 from datetime import datetime
+from multiprocessing import Process, Semaphore
 
 from bin.config import *
 from bin.streaming_data import streaming_data
-from bin.consumer import consumer_data
-from multiprocessing import Process, Semaphore
 
 
 if __name__ == "__main__":
@@ -66,5 +65,8 @@ if __name__ == "__main__":
 
     print("All processes are running")
 
-    for p in processes:
-        p.join()
+    try:
+        for p in processes:
+            p.join()
+    except KeyboardInterrupt:
+        print("Interrupted by user")
