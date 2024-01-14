@@ -1,14 +1,22 @@
-from typing import List, Union
+from typing import List, Dict, Union
 from time import sleep, time
+from json import dumps as json_dumps
 from datetime import datetime
 from kafka import KafkaProducer
 import csv
 from bin.config import *
 
+JSON_COLS: List[str] = []
+JSON_DATA_TYPES: Dict[str, type] = {}
+for col_info in JSON_SCHEMA_LIST:
+    col_name, col_type = col_info.split(" ")
+    JSON_COLS.append(col_name)
+    JSON_DATA_TYPES[col_name] = int if col_type == "INT" else str
+
 
 def streaming_data(
     path: str,
-    topic: str = STORE_TOPIC,
+    topic: str = STORE_TOPIC,  # type: ignore
     start_time: Union[str, None] = None,
     semaphore_prepare=None,
     semaphore_running=None,
@@ -40,11 +48,14 @@ def streaming_data(
 
     producer: KafkaProducer = KafkaProducer(
         bootstrap_servers=[KAFKA_BROKER],
-        value_serializer=lambda x: str(x).encode("utf-8"),
+        value_serializer=lambda x: json_dumps(x).encode("utf-8"),
     )
 
     def send_to_kafka(row: List[str]) -> None:
-        record = ",".join([str(val) for val in row])
+        record: Dict = {}
+        for col_name, col_type in JSON_DATA_TYPES.items():
+            record[col_name] = col_type(row[JSON_COLS.index(col_name)])
+
         if debug:
             print(record)
 
@@ -60,16 +71,6 @@ def streaming_data(
     def get_time_diff(datetime_1: datetime, datetime_2: datetime) -> float:
         res: float = (datetime_1 - datetime_2).total_seconds() / 15 / 60
         return res
-
-    def send_to_kafka_with_delay(
-        previous_time: Union[datetime, None],
-        current_time: datetime,
-        row: List[str],
-    ) -> None:
-        if previous_time:
-            time_diff = get_time_diff(current_time, previous_time)
-            sleep(time_diff * DELAY)
-        send_to_kafka(row)
 
     try:
         with open(path, "r") as f:
@@ -122,7 +123,7 @@ def streaming_data(
                     # Break if the next data has the different time
                     if convert_datetime(row) > current_time:
                         break
-                
+
                 # Update the previous time and current time
                 previous_time = current_time
                 current_time = convert_datetime(row)
