@@ -1,13 +1,15 @@
-from typing import List, Dict, Union
+from typing import Union
 from time import sleep, time
 from json import dumps as json_dumps
 from datetime import datetime
-from kafka import KafkaProducer
 import csv
+
+from kafka import KafkaProducer
+
 from bin.config import *
 
-JSON_COLS: List[str] = []
-JSON_DATA_TYPES: Dict[str, type] = {}
+JSON_COLS: list[str] = []
+JSON_DATA_TYPES: dict[str, type] = {}
 for col_info in JSON_SCHEMA_LIST:
     col_name, col_type = col_info.split(" ")
     JSON_COLS.append(col_name)
@@ -17,7 +19,7 @@ for col_info in JSON_SCHEMA_LIST:
 def streaming_data(
     path: str,
     topic: str = STORE_TOPIC,  # type: ignore
-    start_time: Union[str, None] = None,
+    start_date: Union[str, None] = None,
     semaphore_prepare=None,
     semaphore_running=None,
     debug: bool = False,
@@ -29,7 +31,7 @@ def streaming_data(
     Args:
         path (str): The path to the CSV file.
         topic (str): The Kafka topic to which the data will be streamed.
-        start_time (str, optional): The start time of the data stream.
+        start_date (str, optional): The start time of the data stream.
         semaphore_prepare (Event, optional): A semaphore used for synchronization
             before starting the data stream.
         semaphore_running (Event, optional): A semaphore used for synchronization
@@ -40,9 +42,9 @@ def streaming_data(
         None
     """
     topic = topic or STORE_TOPIC
-    if start_time and (not semaphore_prepare or not semaphore_running):
+    if start_date and (not semaphore_prepare or not semaphore_running):
         raise ValueError(
-            "Invalid arguments\nif start_time is not None, then semaphore_prepare"
+            "Invalid arguments\nif start_date is not None, then semaphore_prepare"
             + "and semaphore_running must not be None"
         )
 
@@ -51,8 +53,8 @@ def streaming_data(
         value_serializer=lambda x: json_dumps(x).encode("utf-8"),
     )
 
-    def send_to_kafka(row: List[str]) -> None:
-        record: Dict = {}
+    def send_to_kafka(row: list[str]) -> None:
+        record: dict = {}
         for col_name, col_type in JSON_DATA_TYPES.items():
             record[col_name] = col_type(row[JSON_COLS.index(col_name)])
 
@@ -61,7 +63,7 @@ def streaming_data(
 
         producer.send(topic=topic, value=record)
 
-    def convert_datetime(row: List[str]) -> datetime:
+    def convert_datetime(row: list[str]) -> datetime:
         FORMAT_DATETIME = "%Y-%m-%d %H:%M"
         res: datetime = datetime.strptime(
             f"{row[2]}-{row[3]}-{row[4]} {row[5]}:{row[6]}", FORMAT_DATETIME
@@ -79,7 +81,7 @@ def streaming_data(
             row = next(reader)
             current_time: datetime = convert_datetime(row)
             previous_time: Union[datetime, None] = (
-                datetime.strptime(start_time, "%Y-%m-%d") if start_time else None
+                datetime.strptime(start_date, "%Y-%m-%d") if start_date else None
             )
 
             # Finding a row can stream after the start time
@@ -90,7 +92,7 @@ def streaming_data(
                 except StopIteration:
                     if semaphore_prepare:
                         semaphore_prepare.release()
-                    print(f"Reached end of file before {start_time}")
+                    print(f"Reached end of file before {start_date}")
                     return
                 # Update the current time of row
                 current_time = convert_datetime(row)
@@ -133,7 +135,7 @@ def streaming_data(
                 sleep(diff_time * DELAY - time_process)
 
     except KeyboardInterrupt:
-        print("Interrupted by user")
+        pass
 
     producer.flush()
     producer.close()
@@ -168,6 +170,6 @@ if __name__ == "__main__":
     streaming_data(
         path=args.data_path,
         topic=args.topic,
-        start_time=args.start_time,
+        start_date=args.start_date,
         debug=True,
     )

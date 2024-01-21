@@ -1,10 +1,29 @@
 import os
-from typing import List
 from datetime import datetime
 from multiprocessing import Process, Semaphore
 
 from bin.config import *
 from bin.streaming_data import streaming_data
+
+DATASETS_PATH = "datasets/"
+
+
+def validate_datetime(date_text: str, debug: bool = False) -> None:
+    """
+    Validates a string as a date.
+
+    Args:
+        date_text (str): The date to validate.
+
+    Returns:
+        None
+    """
+    try:
+        if debug:
+            print(f"Validating date: {date_text}")
+        datetime.strptime(date_text, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("Incorrect data format, should be YYYY-MM-DD")
 
 
 if __name__ == "__main__":
@@ -12,7 +31,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--start-time",
+        "--start-date",
         type=str,
         help="Path to the data file",
     )
@@ -25,9 +44,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.start_time:
-        print(f"Start time: {args.start_time}")
-        datetime.strptime(args.start_time, "%Y-%m-%d")
+    # Validate start time
+    if args.start_date:
+        validate_datetime(args.start_date)
 
     csv_file_names = [
         "Bronx_data.csv",
@@ -37,36 +56,42 @@ if __name__ == "__main__":
         "Staten_Island_data.csv",
     ]
 
-    processes: List[Process] = []
+    processes: list[Process] = []
+
     semaphore_prepare = Semaphore(0)
     semaphore_running = Semaphore(0)
 
-    DATASETS_PATH = "datasets/"
+    # Start streaming processes
     for csv_file_name in csv_file_names:
         p = Process(
             target=streaming_data,
             kwargs={
                 "path": os.path.join(DATASETS_PATH, csv_file_name),
-                "topic": "store_tutorial_15",
-                "start_time": args.start_time,
+                "topic": STORE_TOPIC,
+                "start_date": args.start_date,
                 "semaphore_prepare": semaphore_prepare,
                 "semaphore_running": semaphore_running,
-                "debug": True,
+                "debug": args.debug,
             },
         )
         p.start()
         processes.append(p)
 
+    # Wait for all processes to be ready and running
     for _ in range(len(processes)):
         semaphore_prepare.acquire()
-    print("All processes are ready to start")
+    if args.debug:
+        print("Waiting all of processes are ready to start")
+
     for _ in range(len(processes)):
         semaphore_running.release()
+    if args.debug:
+        print("All processes are running")
 
-    print("All processes are running")
-
+    # Wait for all processes to finish
+    # and handle KeyboardInterrupt
     try:
         for p in processes:
             p.join()
     except KeyboardInterrupt:
-        print("Interrupted by user")
+        print("Stopping streaming processes...")
