@@ -1,16 +1,7 @@
-"""
-This module contains the Producer class for streaming data to Kafka.
-
-Classes:
-    Producer: A class that represents a producer for streaming data to Kafka.
-
-"""
-
 import csv
-from multiprocessing import Process, Semaphore
 from kafka import KafkaProducer
 
-from config import *
+from bin.config import *
 
 
 class Producer:
@@ -21,8 +12,6 @@ class Producer:
         topic (str): The name of the Kafka topic to stream the data to.
         csv_file_path (str optional): The path to the CSV file containing the data to be streamed.
         schema_list (list[str]): A list of strings representing the schema of the data.
-        semaphore_prepare (Semaphore, optional): A semaphore for synchronizing the preparation of streaming.
-        semaphore_running (Semaphore, optional): A semaphore for synchronizing the start of streaming.
         spark (SparkSession, optional): The SparkSession object for reading the CSV file.
         schema_data_types (dict[str, Any]): A dictionary mapping column names to their corresponding data types.
 
@@ -30,7 +19,6 @@ class Producer:
         store_csv_to_kafka(): Reads the CSV file and stores the data to Kafka.
         store_dataframe_to_kafka(df: DataFrame): Stores a DataFrame to Kafka.
         streaming_data_to_kafka(): Streams the data from the CSV file to Kafka in real-time.
-        stop(): Stops the producer by flushing and closing it.
     """
 
     def __init__(
@@ -39,8 +27,6 @@ class Producer:
         schema_list: list[str],
         csv_file_path: Optional[str] = None,
         spark_session: Optional[SparkSession] = None,
-        semaphore_prepare: Optional[Any] = None,
-        semaphore_running: Optional[Any] = None,
     ) -> None:
         """
         Initializes a Producer object.
@@ -50,8 +36,6 @@ class Producer:
             schema_list (list[str]): A list of strings representing the schema of the data.
             csv_file_path (Optional[str]): The path to the CSV file containing the data (default: None).
             spark_session (Optional[SparkSession]): The SparkSession object for processing the data (default: None).
-            semaphore_prepare (Optional[Semaphore]): The semaphore for synchronization during data preparation (default: None).
-            semaphore_running (Optional[Semaphore]): The semaphore for synchronization during data streaming (default: None).
 
         Returns:
             None
@@ -64,8 +48,6 @@ class Producer:
         self.schema_list: list[str] = schema_list
         self.csv_file_path: Optional[str] = csv_file_path
         self.spark_session: Optional[SparkSession] = spark_session
-        self.semaphore_prepare: Optional[Any] = semaphore_prepare
-        self.semaphore_running: Optional[Any] = semaphore_running
         self.schema_data_types: dict[str, Any] = {}
         for col_info in self.schema_list:
             col_name, col_type = col_info.split(" ")
@@ -111,12 +93,16 @@ class Producer:
         """
         sql_exprs = ["to_json(struct(*)) AS value"]
 
-        # Check if the DataFrame has the Timestamp column
-        if "Timestamp" in df.columns:
-            df = df.withColumn(
-                "Timestamp",
-                F.date_format("Timestamp", "yyyy-MM-dd HH:mm"),
-            )
+        # Apply the date_format function to each timestamp column
+        df = df.withColumns(
+            {
+                col_name: F.date_format(col_name, "yyyy-MM-dd HH:mm:ss")
+                # Timestamp columns are in the format "yyyy-MM-dd HH:mm:ss"
+                for col_name in [
+                    col[0] for col in df.dtypes if "timestamp" in col[1].lower()
+                ]
+            }
+        )
 
         return (
             df.selectExpr(*sql_exprs)
@@ -207,12 +193,6 @@ class Producer:
             previous_time: Optional[datetime] = None
             current_time: datetime = row["Timestamp"]
 
-            # Ensure that all the processes stream at the same time if user pass
-            # the start time
-            if self.semaphore_prepare and self.semaphore_running:
-                self.semaphore_prepare.release()
-                self.semaphore_running.acquire()
-
             # Ensure that the first data is streamed at the start time
             if previous_time and current_time > previous_time:
                 time_diff: float = self.__get_time_diff(current_time, previous_time)
@@ -221,7 +201,7 @@ class Producer:
             # Streaming data from the current row
             while True:
                 # Set time point to calculate the time to sleep
-                time_point: float = time()
+                time_point: datetime = datetime.now()
 
                 # Handle the case where the next data has the same time as the
                 # current data
@@ -247,93 +227,14 @@ class Producer:
 
                 # Sleep to simulate the real-time data stream
                 diff_time: float = self.__get_time_diff(current_time, previous_time)
-                time_process: float = time() - time_point
+                time_process: float = (datetime.now() - time_point).total_seconds()
                 sleep(diff_time * DELAY - time_process)
-
-    def stop(self) -> None:
-        """
-        Stops the producer by flushing and closing it.
-        """
-        self.producer.flush()
-        self.producer.close()
 
 
 def using_producer(csv_file_path: str) -> None:
     pro: Producer = Producer(
-        topic=EVENT_TOPIC,
+        topic=CAPTURE_TOPIC,
         csv_file_path=csv_file_path,
-        schema_list=EVENT_SCHEMA_LIST,
+        schema_list=CAPTURE_SCHEMA_LIST,
     )
     pro.streaming_data_to_kafka()
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Print debug messages",
-        default=False,
-    )
-    parser.add_argument(
-        "--store-static-data",
-        action="store_true",
-        help="Store static data to Kafka",
-        default=False,
-    )
-
-    args = parser.parse_args()
-
-    if args.store_static_data:
-        spark_session: SparkSession = (
-            SparkSession.builder.appName("Store static data to Kafka")  # type: ignore
-            .config("spark.jars.packages", ",".join(SPARK_PACKAGES))
-            .getOrCreate()
-        )
-
-        # Store static data to Kafka
-        pro: Producer = Producer(
-            topic=EVENT_TOPIC,
-            schema_list=EVENT_SCHEMA_LIST,
-            csv_file_path=os.path.join(
-                DATASETS_PATH, "static_files", "event_table.csv"
-            ),
-            spark_session=spark_session,
-        )
-        pro.store_csv_to_kafka()
-
-        pro.topic = SEGMENT_TOPIC
-        pro.schema_list = SEGMENT_SCHEMA_LIST
-        pro.csv_file_path = os.path.join(
-            DATASETS_PATH, "static_files", "segment_table.csv"
-        )
-        pro.store_csv_to_kafka()
-
-    else:
-        csv_file_names: list[str] = os.listdir(
-            os.path.join(DATASETS_PATH, "streaming_files")
-        )
-
-        processes: list[Process] = []
-
-        for csv_file_name in csv_file_names:
-            csv_file_path: str = os.path.join(
-                DATASETS_PATH,
-                "streaming_files",
-                csv_file_name,
-            )
-            p: Process = Process(
-                target=using_producer,
-                args=(csv_file_path,),
-            )
-            print("Streaming data from file:", csv_file_name)
-            p.start()
-            processes.append(p)
-
-        try:
-            for p in processes:
-                p.join()
-        except KeyboardInterrupt:
-            print("Stopped streaming data to Kafka")

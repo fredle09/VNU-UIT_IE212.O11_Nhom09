@@ -27,37 +27,16 @@ SPARK_PACKAGES = [
 
 pd.options.mode.copy_on_write = True
 
-DELAY = 20  # seconds
+DELAY = 15  # seconds
 EXPIRE_TIME = 3  # hours
 DATASETS_PATH = "datasets/"
 BATCH_FOLDER = "batch_folder/"
 KAFKA_BROKER = "localhost:9092"
-STORE_TOPIC = "STORE_TOPIC_"
-# EVENT_TOPIC = "EVENT_TOPIC_"
-EVENT_TOPIC = "TestStore"
-# SEGMENT_TOPIC = "SEGMENT_TOPIC_"
-SEGMENT_TOPIC = "TestSegment"
-# PREDICTION_TOPIC = "PREDICTION_TOPIC_"
-PREDICTION_TOPIC = "TestPrediction"
+CAPTURE_TOPIC = "CAPTURE_TOPIC"
+SEGMENT_TOPIC = "SEGMENT_TOPIC"
+PREDICTION_TOPIC = "PREDICTION_TOPIC"
 
-STORE_SCHEMA_LIST = [
-    "RequestID INT",
-    "Boro STRING",
-    "Yr INT",
-    "M INT",
-    "D INT",
-    "HH INT",
-    "MM INT",
-    "Vol INT",
-    "SegmentID INT",
-    "WktGeom STRING",
-    "street STRING",
-    "fromSt STRING",
-    "toSt STRING",
-    "Direction STRING",
-]
-
-EVENT_SCHEMA_LIST = [
+CAPTURE_SCHEMA_LIST = [
     "SegmentID INT",
     "Direction STRING",
     "Vol INT",
@@ -74,11 +53,21 @@ SEGMENT_SCHEMA_LIST = [
     "Long DOUBLE",
 ]
 
-PREDICTION_SCHEMA_LIST = [
+FORECASTING_SCHEMA_LIST = [
     "SegmentID INT",
     "Direction STRING",
     "ds TIMESTAMP",
     "yhat DOUBLE",
     "min_history_ds TIMESTAMP",
     "max_history_ds TIMESTAMP",
+]
+
+PREDICTION_SCHEMA_LIST = [
+    "SegmentID INT",
+    "Direction STRING",
+    "Timestamp TIMESTAMP",
+    "prediction_vol DOUBLE",
+    "min_history_ds TIMESTAMP",
+    "max_history_ds TIMESTAMP",
+    "prediction_ds TIMESTAMP",
 ]
