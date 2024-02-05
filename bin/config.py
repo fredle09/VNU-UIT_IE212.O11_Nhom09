@@ -27,7 +27,7 @@ SPARK_PACKAGES = [
 
 pd.options.mode.copy_on_write = True
 
-DELAY = 15  # seconds
+DELAY = 120  # seconds
 EXPIRE_TIME = 3  # hours
 DATASETS_PATH = "datasets/"
 BATCH_FOLDER = "batch_folder/"
