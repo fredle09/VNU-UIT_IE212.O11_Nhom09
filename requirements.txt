@@ -1,4 +1,10 @@
 findspark==2.0.1
+folium==0.12.1.post1
 kafka_python==2.0.2
-pandas==2.1.4
+numpy==1.26.3
+pandas==1.5.2
+plotly==5.18.0
+prophet==1.1.5
 pyspark==3.5.0
+streamlit==1.30.0
+streamlit_folium==0.8.1
